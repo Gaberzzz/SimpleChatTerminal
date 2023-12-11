@@ -1,8 +1,10 @@
 import threading
-import time
+import tkinter as tk
+from tkinter import scrolledtext
 import socket
+import time
 
-def handle_client(client_socket, client_name):
+def handle_client(client_socket, client_name, text_area):
     while True:
         try:
             message = client_socket.recv(1024).decode()
@@ -10,10 +12,26 @@ def handle_client(client_socket, client_name):
                 print(f"{client_name} has left the chat.")
                 break
             print(f"{client_name} > {message}")
+            text_area.insert(tk.END, f"{client_name} > {message}\n")
             broadcast(f"{client_name} > {message}", client_socket)
+
         except:
             print(f"Connection with {client_name} lost.")
             break
+
+def receive_messages():
+    while True:
+        for client_socket, client_name in clients:
+            try:
+                message = client_socket.recv(1024).decode()
+                if message:
+                    print(f"{client_name} > {message}")
+                    text_area.insert(tk.END, f"{client_name} > {message}\n")
+                    broadcast(f"{client_name} > {message}", client_socket)
+
+            except:
+                print(f"Connection with {client_name} lost.")
+                break
 
 def broadcast(message, current_client_socket):
     for client, name in clients:
@@ -35,6 +53,28 @@ def server_send():
         message = input("Server > ")
         send_to_all(f"Server > {message}")
 
+def start_server_gui():
+    window = tk.Tk()
+    window.title('Server Chat')
+
+    global text_area
+    text_area = scrolledtext.ScrolledText(window, wrap=tk.WORD, width=40, height=10)
+    text_area.grid(column=0, row=0, columnspan=2)
+
+    server_send_entry = tk.Entry(window, width=30)
+    server_send_entry.grid(column=0, row=1)
+
+    server_send_button = tk.Button(window, text='Send', command=lambda: send_to_all_gui(server_send_entry))
+    server_send_button.grid(column=1, row=1)
+
+    def send_to_all_gui(entry):
+        message = entry.get()
+        text_area.insert(tk.END, f'Server > {message}\n')
+        entry.delete(0, tk.END)
+        send_to_all(f"Server > {message}")
+
+    window.mainloop()
+
 print('Server turning on')
 time.sleep(1)
 
@@ -51,6 +91,14 @@ print('Waiting for incoming connections...\n')
 
 clients = []
 
+# Start the server GUI in a separate thread
+server_gui_thread = threading.Thread(target=start_server_gui)
+server_gui_thread.start()
+
+# Start the receive thread
+recv_thread = threading.Thread(target=receive_messages)
+recv_thread.start()
+
 while True:
     client_socket, addr = soc.accept()
     print("Received connection from ", addr[0], "(", addr[1], ")")
@@ -62,12 +110,8 @@ while True:
 
     clients.append((client_socket, client_name))
 
-    client_handler = threading.Thread(target=handle_client, args=(client_socket, client_name))
+    client_handler = threading.Thread(target=handle_client, args=(client_socket, client_name, text_area))
     client_handler.start()
 
     # Notify all clients about the new connection
     send_to_all(f"{client_name} has joined the chat.")
-
-    # Start a thread for the server to send messages
-    server_send_thread = threading.Thread(target=server_send)
-    server_send_thread.start()
